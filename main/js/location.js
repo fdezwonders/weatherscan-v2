@@ -1,4 +1,4 @@
-var newExtraCities = [];
+var nearbyLocationSearches = new Map();
 var newCourses = []
 
 var golfRegional = [
@@ -197,151 +197,119 @@ async function getMainCity() {
     ccTunnel = systemSettings.mainCity.icaoCode;
 }
 
-async function getNearbyCities() {
-    systemSettings.nearbyCities.cities = []
-    let locationQueue = [], nearbyRound = 0, newCities = [];
+function normalizeLocationName(name) {
+    return name.replaceAll(" Charter Township", "").replaceAll(" Township", "");
+}
 
-    async function grabNearbyCities(lat, lon) {
-        locationQueue.push(`${lat},${lon}`);
-        if (nearbyRound >= 10) {
-            systemSettings.nearbyCities.cities = newCities.sort((a, b) => a.obsName.localeCompare(b.obsName));
-            console.warn("Nearby pull was cut off after 10 turns, location list may not be full.");
-            nearbyRound = 0;
-            return;
+function locationDistanceMiles(lat1, lon1, lat2, lon2) {
+    const radians = Math.PI / 180;
+    const deltaLat = (lat2 - lat1) * radians;
+    const deltaLon = (lon2 - lon1) * radians;
+    const arc = Math.sin(deltaLat / 2) ** 2 + Math.cos(lat1 * radians) * Math.cos(lat2 * radians) * Math.sin(deltaLon / 2) ** 2;
+    return 3958.8 * 2 * Math.asin(Math.sqrt(Math.min(1, arc)));
+}
+
+function validLocationCoordinates(lat, lon) {
+    return typeof lat === "number" && typeof lon === "number" && Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+}
+
+async function getNearbyLocations(lat = systemSettings.mainCity.lat, lon = systemSettings.mainCity.lon) {
+    if (lat == null || lon == null || lat === "" || lon === "") return [];
+    lat = Number(lat);
+    lon = Number(lon);
+    const limit = Math.max(10, Number(systemSettings.extraCity.maxCities) + 1 || 10);
+    const cacheKey = `${lat},${lon},${limit}`;
+    if (nearbyLocationSearches.has(cacheKey)) return nearbyLocationSearches.get(cacheKey);
+
+    const search = (async () => {
+        if (!validLocationCoordinates(lat, lon)) return [];
+        const cities = new Map();
+        const stationCoordinates = new Set();
+        const centers = [{lat, lon}];
+        // Search around the original location rather than following the last station,
+        // which can repeatedly lead back to coastal stations or drift far away.
+        for (const bearing of [0, 270, 180, 90, 315, 225, 45, 135]) {
+            const radians = bearing * Math.PI / 180;
+            centers.push({
+                lat: lat + Math.cos(radians) * 35 / 69,
+                lon: lon + Math.sin(radians) * 35 / (69 * Math.max(0.1, Math.cos(lat * Math.PI / 180)))
+            });
         }
-        if (newCities.length >= 8) {
-            systemSettings.nearbyCities.cities = newCities.sort((a, b) => a.obsName.localeCompare(b.obsName));
-            nearbyRound = 0;
-            return;
-        }
-        nearbyRound++;
 
-        let locpull = locationQueue.shift();
-
-        const data = await $.getJSON(`https://api.weather.com/v3/location/near?geocode=${locpull}&product=observation&format=json&apiKey=${systemSettings.apiKeys.api_key}`)
-
-        for (let i = 0; i < data.location.stationId.length; i++) {
-            await createNewNearbyCity(data.location.stationId[i]);
-        }
-        if (newCities.length >= 8) {
-            systemSettings.nearbyCities.cities = newCities.sort((a, b) => a.obsName.localeCompare(b.obsName));
-            return;
-        } else {
-            grabNearbyCities(data.location.latitude[data.location.latitude.length-1],data.location.longitude[data.location.longitude.length-1]);
-        }
-    }
-
-    async function createNewNearbyCity(icao) {
-        var locName, dontPush;
-        try {
-            const data = await $.getJSON(`https://api.weather.com/v3/location/point?icaoCode=${icao}&language=en-US&format=json&apiKey=${systemSettings.apiKeys.api_key}`)
-            locName = data.location.displayName.replace(" Charter Township", "").replace(" Township", "");
-            /*if(data.location.locale["locale4"] != null){
-                if(!data.location.locale["locale4"].endsWith("Naval Air Station")){locName = data.location.locale["locale4"]}
-            }*/
-            var cityObj = { obsName: locName, icaoCode: icao, header: "icaoCode=" + icao};
-            for (let i = 0; i < newCities.length; i++) {
-                if (cityObj.obsName == systemSettings.mainCity.locationName) {
-                    cityObj.icaoCode = systemSettings.mainCity.icaoCode;
-                }
-                if (cityObj.obsName == newCities[i].obsName) { dontPush = true }
-                if (cityObj.icaoCode == newCities[i].icaoCode) { dontPush = true }
-                if (newCities.length >= 8) { dontPush = true }
+        for (const center of centers) {
+            if (cities.size >= limit) break;
+            if (!validLocationCoordinates(center.lat, center.lon)) continue;
+            let stations;
+            try {
+                const data = await $.getJSON(`https://api.weather.com/v3/location/near?geocode=${center.lat},${center.lon}&product=observation&format=json&apiKey=${systemSettings.apiKeys.api_key}`);
+                stations = data.location;
+            } catch (error) {
+                continue;
             }
-            if (!dontPush) { newCities.push(cityObj) }
-        } catch (error) {
-            
+            if (!stations || !Array.isArray(stations.stationId)) continue;
+            const resolved = await Promise.all(stations.stationId.map(async (icao, i) => {
+                const stationLat = stations.latitude?.[i], stationLon = stations.longitude?.[i];
+                if (!validLocationCoordinates(stationLat, stationLon)) return;
+                if (locationDistanceMiles(lat, lon, stationLat, stationLon) > 100) return;
+                const coordinates = `${stationLat},${stationLon}`;
+                if (stationCoordinates.has(coordinates)) return;
+                stationCoordinates.add(coordinates);
+                try {
+                    // Some station identifiers resolve to the wrong country (e.g. KNGP).
+                    // Coordinates also work for coastal stations without an ICAO code.
+                    const data = await $.getJSON(`https://api.weather.com/v3/location/point?geocode=${coordinates}&language=en-US&format=json&apiKey=${systemSettings.apiKeys.api_key}`);
+                    const location = data.location;
+                    if (!location || !location.displayName || !validLocationCoordinates(location.latitude, location.longitude)) return;
+                    if (locationDistanceMiles(stationLat, stationLon, location.latitude, location.longitude) > 25) return;
+                    const distance = locationDistanceMiles(lat, lon, location.latitude, location.longitude);
+                    if (distance > 100) return;
+                    const name = normalizeLocationName(location.displayName);
+                    return {
+                        locationName: name, obsName: name,
+                        lat: location.latitude, lon: location.longitude,
+                        locationID: location.locId, icaoCode: icao,
+                        header: `geocode=${location.latitude},${location.longitude}`,
+                        distance
+                    };
+                } catch (error) {
+                    return;
+                }
+            }));
+            for (const city of resolved) {
+                if (!city) continue;
+                const nameKey = city.locationName.toLowerCase();
+                const existing = cities.get(nameKey);
+                if (!existing || city.distance < existing.distance) cities.set(nameKey, city);
+            }
         }
-    }
+        return Array.from(cities.values()).sort((a, b) => a.distance - b.distance).slice(0, limit);
+    })();
+    nearbyLocationSearches.set(cacheKey, search);
+    return search;
+}
 
-    await grabNearbyCities(systemSettings.mainCity.lat, systemSettings.mainCity.lon)
+async function getNearbyCities() {
+    const cities = await getNearbyLocations();
+    systemSettings.nearbyCities.cities = cities.slice(0, 8).sort((a, b) => a.obsName.localeCompare(b.obsName));
 }
 
 async function getExtraCities() {
-    systemSettings.extraCity.cities = []
-    async function grabExtraCities(lat, lon) {
-        const data = await $.getJSON(`https://api.weather.com/v3/location/near?geocode=${lat},${lon}&product=observation&format=json&apiKey=${systemSettings.apiKeys.api_key}`)
-        //console.log(data);
-        for (let i = 0; i < data.location.stationId.length; i++) {
-            await createNewExtraCity(data.location.stationId[i], data.location.distanceMi[i]);
-            if (i == data.location.stationId.length - 1) {
-                await addExtraCities()
-            }
-        }
-    }
-
-    async function createNewExtraCity(icao, dist) {
-        var extraCityObj, dontPush = false;
-        try {
-        const data = await $.getJSON(`https://api.weather.com/v3/location/point?icaoCode=${icao}&language=en-US&format=json&apiKey=${systemSettings.apiKeys.api_key}`)
-
-        extraCityObj = {
+    const cities = await getNearbyLocations();
+    const mainName = normalizeLocationName(systemSettings.mainCity.locationName).toLowerCase();
+    systemSettings.extraCity.cities = cities
+        .filter(city => city.locationName.toLowerCase() !== mainName && city.icaoCode !== systemSettings.mainCity.icaoCode)
+        .slice(0, systemSettings.extraCity.maxCities)
+        .map(city => ({
+            ...city,
             packageName: "locname",
-            locationName: data.location.displayName.replaceAll(" Charter Township", "").replaceAll(" Township", ""),
-            bulletinName: data.location.displayName.replaceAll(" Charter Township", "").replaceAll(" Township", "") + " Area",
-            lat: data.location.latitude,
-            lon: data.location.longitude,
-            obsName: data.location.displayName,
-            icaoCode: data.location.icaoCode,
-            upNextBG: "city_bg",
-            slidesBG: "core_bg",
-            radar: {
-                auto: true,
-                radarCities: [],
-                radarIcons: []
-            },
-            distance: dist
-        }
-        extraCityObj.header = "icaoCode=" + extraCityObj.icaoCode;
-        if (data.location.displayName == systemSettings.mainCity.locationName)return;/*{
-            if(data.location.locale["locale4"] != null){
-                if(data.location.locale["locale4"].endsWith("Naval Air Station")) return;
-                extraCityObj.obsName = data.location.locale["locale4"];
-                extraCityObj.bulletinName = data.location.locale["locale4"] + " Area";
-                extraCityObj.locationName = data.location.locale["locale4"];
-            }else{
-                return;
-            }
-        }*/
-        if (icao == systemSettings.mainCity.icaoCode) return;
-        for (let i = 0; i < newExtraCities.length; i++) {
-            if (extraCityObj.locationName == newExtraCities[i].locationName) {
-                dontPush = true;
-                continue;
-            }
-        }
-        if (!dontPush) { newExtraCities.push(extraCityObj) }
-        newExtraCities = newExtraCities.sort((a, b) => a.distance - b.distance);
-        } catch (error) {
-        }
+            bulletinName: city.locationName + " Area",
+            upNextBG: "city_bg", slidesBG: "core_bg",
+            radar: {auto: true, radarCities: [], radarIcons: []}
+        }));
+    if (systemSettings.extraCity.cities.length === 0) {
+        systemSettings.packageSettings = systemSettings.packageSettings.map(packageName =>
+            packageName.replaceAll("extralocal", Math.random() > 0.5 ? "minicoreone" : "minicoretwo"));
     }
-
-    function addExtraCities() {
-        for (let i = 0; i < systemSettings.extraCity.maxCities; i++) {
-            try {
-                if(newExtraCities[i] == undefined){throw new Error("Extra city undefined, won't be added to extra city list.")}
-                if (systemSettings.extraCity.maxCities == systemSettings.extraCity.cities.length) { break }
-                systemSettings.extraCity.cities.push(newExtraCities[i]);
-            } catch (error) {
-
-            }
-        }
-        /*
-        if (systemSettings.extraCity.maxCities != systemSettings.extraCity.cities.length) {
-            systemSettings.extraCity.maxCities = systemSettings.extraCity.cities.length;
-            while (systemSettings.extraCity.maxCities != systemSettings.extraCity.cities.length) {
-                systemSettings.extraCity.cities.pop();
-            }
-        }
-        */
-        if(systemSettings.extraCity.cities.length == 0){
-            for(let i = 0; i < systemSettings.packageSettings.length; i++){
-                systemSettings.packageSettings[i] = systemSettings.packageSettings[i].replaceAll("extralocal", Math.random() > 0.5 ? "minicoreone" : "minicoretwo");
-            }
-        }
-    }
-
-    await grabExtraCities(systemSettings.mainCity.lat, systemSettings.mainCity.lon)
 }
 
 function getExtraRadar() {
@@ -359,65 +327,11 @@ function getExtraRadar() {
 }
 
 async function getLBarCC() {
-    var tickerArray = []
-
-    async function grabTickerCities(lat,lon){
-        var url = `https://api.weather.com/v3/location/near?geocode=${lat},${lon}&product=observation&format=json&apiKey=${systemSettings.apiKeys.api_key}`
-        
-        const data = await $.getJSON(url)
-
-        for(let i = 0; i < 10; i++){
-            await createNewCity(data.location.latitude[((i*5) % data.location.latitude.length)], data.location.longitude[((i*2) % data.location.latitude.length)], tickerArray);
-        }
-        if(tickerArray.length < 10){
-            grabTickerCities(data.location.latitude[data.location.latitude.length-1],data.location.longitude[data.location.longitude.length-1])
-        } else {
-            systemSettings.LBar.ccTicker.cities = tickerArray.sort((a, b) => a.locationName.localeCompare(b.locationName));
-            return;
-        }
-    }
-
-    /**
-     * Creates a new city based off of latitude and longitude
-     * @param {*} lat latitude
-     * @param {*} lon longitude
-     */
-
-    async function createNewCity(lat, lon, obj){
-        //console.log(lat, lon);
-        var newCity;
-
-        const data = await $.getJSON(`https://api.weather.com/v3/location/point?geocode=${lat},${lon}&language=en-US&format=json&apiKey=${systemSettings.apiKeys.api_key}`)
-
-        newCity = {
-            locationName: data.location.displayName.replace(" Charter Township", "").replace(" Township", ""),
-            locationID: data.location.locId
-        }
-
-        if(newCity.locationName == systemSettings.mainCity.locationName){
-            newCity = {
-                locationName: systemSettings.mainCity.locationName,
-                locationID: systemSettings.mainCity.locationID,
-                lat: systemSettings.mainCity.lat,
-                lon: systemSettings.mainCity.lon
-            }
-        }
-
-        if(obj == tickerArray){
-            if(tickerArray.length >= 10){
-                //initLocDataHeaders();
-                return;
-            }
-            for(let i = 0; i < tickerArray.length; i++){
-                if(newCity.locationName == tickerArray[i].locationName){
-                    return;
-                }
-            }
-            tickerArray.push(newCity);
-        }
-    }
-
-    grabTickerCities(systemSettings.LBar.locations.cities[0].lat, systemSettings.LBar.locations.cities[0].lon)
+    const center = systemSettings.LBar.locations.cities[0];
+    const cities = await getNearbyLocations(center.lat, center.lon);
+    systemSettings.LBar.ccTicker.cities = cities.slice(0, 10)
+        .sort((a, b) => a.locationName.localeCompare(b.locationName))
+        .map(city => ({...city, header: `${city.lat},${city.lon}`}));
 }
 
 async function getTravelCities() {
@@ -546,6 +460,7 @@ async function getGardenLoc(lat, lon, name) {
 var mainquery = ""
 
 async function locationJS() {
+    nearbyLocationSearches.clear();
     mainquery = window.location.search == "" ? undefined : window.location.search.replaceAll("?", "").replaceAll("%20", " ");
     
     //main city
@@ -553,7 +468,9 @@ async function locationJS() {
         await getMainCity()
     }
     
-    if (systemSettings.mainCity.locationID != undefined){
+    if (systemSettings.mainCity.autoFind == true) {
+        systemSettings.mainCity.header = `geocode=${systemSettings.mainCity.lat},${systemSettings.mainCity.lon}`;
+    } else if (systemSettings.mainCity.locationID != undefined){
         systemSettings.mainCity.header = "geocode=" + await getCoordsLocID(systemSettings.mainCity.locationID);
     }else{
         systemSettings.mainCity.header = `icaoCode=${systemSettings.mainCity.icaoCode}`;
@@ -616,7 +533,7 @@ async function locationJS() {
             obsName: systemSettings.mainCity.obsName,
             icaoCode: systemSettings.mainCity.icaoCode
         }
-        systemSettings.LBar.locations.cities[0].header = "icaoCode=" + systemSettings.LBar.locations.cities[0].icaoCode;
+        systemSettings.LBar.locations.cities[0].header = systemSettings.mainCity.header;
     } else {
         for(let i = 0; i < systemSettings.LBar.locations.cities.length; i++){
             if(systemSettings.LBar.locations.cities[i].locationID != undefined){
@@ -738,7 +655,10 @@ async function locationJS() {
     systemSettings.garden.header = await getCoordsLocID(systemSettings.garden.locationID)
 
     for (var i = 0; i < systemSettings.LBar.ccTicker.cities.length; i++) {
-        systemSettings.LBar.ccTicker.cities[i].header = await getCoordsLocID(systemSettings.LBar.ccTicker.cities[i].locationID)
+        const city = systemSettings.LBar.ccTicker.cities[i];
+        city.header = systemSettings.LBar.ccTicker.autoFind == true
+            ? `${city.lat},${city.lon}`
+            : await getCoordsLocID(city.locationID);
     }
 
     for (var i = 0; i < systemSettings.LBar.ccTicker.travelCities.length; i++) {

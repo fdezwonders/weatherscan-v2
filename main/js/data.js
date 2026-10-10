@@ -1433,7 +1433,10 @@ function getHealthData() {
   }
   getAirQuality()
   async function getUVData() {
-    var currenturl = "https://api.weather.com/v3/wx/observations/current?icaoCode=" + systemSettings.health.icaoCode + "&units=e&language=en-US&format=json&apiKey=" + api_key
+    const currentLocation = systemSettings.health.autoFind == true
+      ? `geocode=${systemSettings.health.lat},${systemSettings.health.lon}`
+      : `icaoCode=${systemSettings.health.icaoCode}`;
+    var currenturl = "https://api.weather.com/v3/wx/observations/current?" + currentLocation + "&units=e&language=en-US&format=json&apiKey=" + api_key
 
     const currentdata = await $.getJSON(currenturl)
 
