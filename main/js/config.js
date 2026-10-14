@@ -192,7 +192,7 @@ var systemSettings = {
         {icon:"njTurnpikeSign",topPos:"0",leftPos:"0"}
       ]
     },
-    zoomOut: 9.4,
+    zoomOut: 10.5,
     zoomIn: 8.6,
     routes: [
       { from: "", fromStreet: "", to: "", toStreet: "", routeIcon: "" },

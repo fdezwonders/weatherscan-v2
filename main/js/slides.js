@@ -1,5 +1,4 @@
 var radarTransform = false;
-var trafTransform = false;
 var satTransform = false;
 var radarSlide = false;
 var slideLength = 9995;
@@ -291,6 +290,7 @@ function switchProvider(type) {
 }
 
 function segmentSet() {
+  if (weatherData.severemode && activeTrafficTour) cancelTrafficTour()
   if (weatherData.severemode == true) {
     $("#slides-scroller .package-list").empty()
     orderidx = 1
@@ -355,6 +355,7 @@ function segmentSet() {
   } else {
     $(".obs-lbar .obs-ticker-severe").fadeIn(0)
   }
+  manageDurations()
   setTimeout(() => {
     if (slideSettings.order[orderidx].slideLineup[gidx].group == "extralocal"){ return; }
     allData();
@@ -362,7 +363,6 @@ function segmentSet() {
       getlBarData(i);
     }
   }, slideSettings.order[orderidx].slideLineup[gidx].duration-3500);
-  manageDurations()
   
   switchProvider()
 
@@ -1195,64 +1195,21 @@ var slidePrograms = {
       }, slideSettings.order[orderidx].slideLineup[gidx].slides[idx].duration);
     },
     trafficOverview() {
-      $('.titletext').text("Traffic Overview")
-      $('.headertext').text(systemSettings.traffic.locationName)
-      var trafZoom = ((round < 1) ? systemSettings.traffic.zoomOut : systemSettings.traffic.zoomIn)
-      var cap = slideSettings.order[orderidx].slideLineup[gidx].slides[idx].duration.length-1
-      if (weatherData.trafficMapUnavailable == false) {
-        createTrafficMapIcons(round)
-        if (round == 0) {
-          audioPlayer.playTrafficCond()
-          fadeSlideIn($(".traffic-overview"), 500)
-        } else {
-          fadeSlideIn($(".traffic-overview"), 250)
-        }
-        setTimeout(() =>{
-          if (!trafTransform) {
-          $("#slides").css("scale","none")
-          trafficMap.resize()
-          trafTransform = true
-          $("#slides").css("scale","0.72")
-        }
-          trafficMap.setZoom(trafZoom)
-        }, 1)
-
-         setTimeout(() => {
-          setTimeout(() => {
-            deleteTrafficMapIcons()
-          }, 500);
-           if (round < cap) {
-             fadeSlideOut($(".traffic-overview"), 250, false)
-             setTimeout(() => {
-               round++
-               currentProgram()
-             }, 500);
-           } else {
-             fadeSlideOut($(".traffic-overview"), 500, true)
-           }
-         }, slideSettings.order[orderidx].slideLineup[gidx].slides[idx].duration[round]-500);
-      } else {
-        $(".tempunavailable").fadeIn(500)
-        setTimeout(() => {
-          $(".tempunavailable").fadeOut(500)
-          setTimeout(() => {
-            round = 0
-            slideCallBack()
-          }, 500);
-        }, slideSettings.order[orderidx].slideLineup[gidx].slides[idx].duration[round]-500); 
-      }
+      startTrafficOverview()
     },
     trafficReport() {
       $('.titletext').text("Traffic Report")
       $('.headertext').text(weatherData.trafficReport.locationName)
+      const incidents = trafficTextIncidents()
       var lastrd = false
       var bump = round*2
       var indivLength = 0
       var divs = [".top", ".bottom"]
       var initSpace = ["  ", ""]
+      const impactSpace = {"LOW IMPACT": "                     ", "MEDIUM IMPACT": "                            ", "HIGH IMPACT": "                      "}
       var blockColors = {"LOW IMPACT":"#59cb61", "MEDIUM IMPACT":"#dfcd26", "HIGH IMPACT":"#bf2026"}
-      if (weatherData.trafficReport.noReport == false && weatherData.trafficReport.incidents.length > 0) {
-        if (weatherData.trafficReport.incidents.length - bump <= 2) {
+      if (incidents.length > 0) {
+        if (incidents.length - bump <= 2) {
           lastrd = true
         }
         if (round == 0) {
@@ -1260,7 +1217,7 @@ var slidePrograms = {
         } else {
           fadeSlideIn($(".traffic-report"), 250)
         }
-        if (weatherData.trafficReport.incidents.length - bump == 1) {
+        if (incidents.length - bump == 1) {
           $(".traffic-report .bottomgroup").fadeOut(0)
           $(".traffic-report .panel.full").fadeIn(0)
           indivLength = 1
@@ -1270,11 +1227,11 @@ var slidePrograms = {
           indivLength = 2
         }
         for (var i = 0; i < indivLength; i++) {
-          $(".traffic-report .incident" + divs[i]).text(weatherData.trafficReport.incidents[i+bump].title)
-          $(".traffic-report .intensity" + divs[i]).text(weatherData.trafficReport.incidents[i+bump].impact)
-          $(".traffic-report .intensitycover" + divs[i]).text(weatherData.trafficReport.incidents[i+bump].impact)
-          $(".traffic-report .intensitycover" + divs[i]).css({"color":blockColors[weatherData.trafficReport.incidents[i+bump].impact], "background-color":blockColors[weatherData.trafficReport.incidents[i+bump].impact]})
-          $(".traffic-report .description" + divs[i]).text(initSpace[i] + weatherData.trafficReport.incidents[i+bump].desc)
+          $(".traffic-report .incident" + divs[i]).text(incidents[i+bump].title)
+          $(".traffic-report .intensity" + divs[i]).text(incidents[i+bump].impact)
+          $(".traffic-report .intensitycover" + divs[i]).text(incidents[i+bump].impact)
+          $(".traffic-report .intensitycover" + divs[i]).css({"color":blockColors[incidents[i+bump].impact], "background-color":blockColors[incidents[i+bump].impact]})
+          $(".traffic-report .description" + divs[i]).text(initSpace[i] + impactSpace[incidents[i+bump].impact] + incidents[i+bump].desc)
         }
         
         setTimeout(() => {
@@ -2784,6 +2741,7 @@ function slideKickOff() {
   ccTickerLoop(0);
 } //end of slideKickOff() function
 function showSlides() {
+  cancelTrafficTour()
   if (slideSettings.order[orderidx].slideLineup[gidx].group == "extralocal") {
       locationChoice = "extra"
     } else if (slideSettings.order[orderidx].slideLineup[gidx].group == "spanish") {
@@ -3160,44 +3118,26 @@ function manageDurations() {
         { duration: 9000, function: "tides" },
       ]
       break;
-    case "traffic":
-      var trafPages = Math.ceil(weatherData.trafficReport.incidents.length/2)
-      if (trafPages == 3){
-        slideSettings.order[orderidx].slideLineup[gidx].slides = [
-          { duration: 4000, function: "trafficIntro" },
-          { duration: [9000], function: "trafficOverview" },
-          { duration: [10000,9000,9000], function: "trafficReport" },
-          { duration: [10000,9000], function: "trafficFlow" },
-        ]
-      } else if (trafPages == 2) {
-        slideSettings.order[orderidx].slideLineup[gidx].slides = [
-          { duration: 4000, function: "trafficIntro" },
-          { duration: [10000,9000], function: "trafficOverview" },
-          { duration: [10000,9000], function: "trafficReport" },
-          { duration: [9000,9000], function: "trafficFlow" },
-        ]
-      } else if (trafPages == 1) {
-        slideSettings.order[orderidx].slideLineup[gidx].slides = [
-          { duration: 4000, function: "trafficIntro" },
-          { duration: [10000,9000], function: "trafficOverview" },
-          { duration: [12000], function: "trafficReport" },
-          { duration: [14000,11000], function: "trafficFlow" },
-        ]
-      } else {
-        if (weatherData.trafficFlow.noReport == true) {
-          slideSettings.order[orderidx].slideLineup[gidx].slides = [
-            { duration: 4000, function: "trafficIntro" },
-            { duration: [28000,28000], function: "trafficOverview" },
-          ]
-        } else {
-          slideSettings.order[orderidx].slideLineup[gidx].slides = [
-            { duration: 4000, function: "trafficIntro" },
-            { duration: [13000,10000], function: "trafficOverview" },
-            { duration: [23000,10000], function: "trafficFlow" },
-          ]
-        }
-      }
+    case "traffic": {
+      const incidents = weatherData.trafficReport.incidents;
+      const mapped = weatherData.trafficMapUnavailable ? [] : incidents.filter(incident => incident.coordinates);
+      const fallback = weatherData.trafficMapUnavailable ? incidents : incidents.filter(incident => !incident.coordinates);
+      const tourDuration = 8000 + mapped.reduce((duration, incident) => duration + 2450 + (trafficHoldTimes[incident.criticality] || 4000), 0)
+        + (mapped.length ? 4000 : 0) + 1000;
+      const routes = weatherData.trafficFlow.noReport ? [] : weatherData.trafficFlow.routes;
+      const flowDurations = Array.from({length: Math.ceil(routes.length / 3)}, (_, i) => i === 0 ? 10000 : 9000);
+      const trafficLineup = slideSettings.order[orderidx].slideLineup[gidx];
+      trafficLineup.slides = [
+        {duration: 4000, function: "trafficIntro"},
+        {duration: tourDuration, function: "trafficOverview"},
+        // Reserve enough pages for all incidents if the map fails during the tour.
+        {duration: [12000, 10000, 10000], function: "trafficReport"}
+      ];
+      if (flowDurations.length) trafficLineup.slides.push({duration: flowDurations, function: "trafficFlow"});
+      trafficLineup.duration = 4000 + tourDuration + Array.from({length: Math.ceil(fallback.length / 2)}, (_, i) => i === 0 ? 12000 : 10000).reduce((total, duration) => total + duration, 0)
+        + flowDurations.reduce((total, duration) => total + duration, 0);
       break;
+    }
     default:
       break;
   }

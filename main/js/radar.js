@@ -334,12 +334,14 @@ function initializeRadars() {
     trafficMap = new mapboxgl.Map({
       container: 'trafmap',
       style: "mapbox://styles/colster/cmrgo0laa007z01s7bpym4u63",
-      center: [0, 0],
-      zoom: 7.2,
+      center: [Number(systemSettings.traffic.lon), Number(systemSettings.traffic.lat)],
+      zoom: systemSettings.traffic.zoomOut,
       trackResize: false,
-      interactive: false
+      interactive: false,
+      attributionControl: false,
+      maxTileCacheSize: 512
     });
-    trafficMap.jumpTo({center: [systemSettings.traffic.lon, systemSettings.traffic.lat]});
+    trafficMap.on('load', () => addTrafficRoadLabels(trafficMap));
     weatherData.trafficMapUnavailable = false
   } catch (error) {
     console.error(error)

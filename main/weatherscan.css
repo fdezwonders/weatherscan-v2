@@ -3010,10 +3010,13 @@ position: absolute;
     font-family: 'Frutiger Bold Cn';
     font-size: 39px;
 }
+#trafmap .mapboxgl-ctrl-logo {
+  display: none;
+}
 #trafmap {
   position: absolute;
-    height: 645px;
-    width: 1227px;
+    height: 100%;
+    width: 100%;
     z-index: 2;
     align-self: center;
 }
@@ -3022,6 +3025,7 @@ position: absolute;
     height: 535px;
     width: 1227px;
     z-index: 3;
+    pointer-events: none;
 }
 .traffic-overview .traffic-icons .icon {
     position: absolute;
@@ -3031,6 +3035,72 @@ position: absolute;
     transform-origin: top left;
     transform: scale(1.3);
     filter: drop-shadow(2px 4px 15px rgb(20, 20, 20));
+}
+.traffic-incident-pin {
+  width: 46px;
+  height: 58px;
+  pointer-events: none;
+  filter: drop-shadow(0 3px 3px #141414);
+}
+.traffic-incident-enter {
+  animation: traffic-incident-reveal 450ms ease-out both;
+}
+@keyframes traffic-incident-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .traffic-incident-enter { animation: none; }
+}
+.traffic-incident-pin-symbol {
+  display: block;
+  width: 46px;
+  height: 58px;
+}
+.traffic-incident-popup .mapboxgl-popup-content {
+  box-sizing: border-box;
+  max-height: 280px;
+  overflow: auto;
+  padding: 18px 20px;
+  border: 2px solid #94b3df;
+  border-radius: 0;
+  background: #14285d;
+  box-shadow: 4px 5px 8px #14141499;
+  color: white;
+  font: 26px/1.2 Frutiger;
+  text-shadow: 1px 2px #141414;
+}
+.traffic-incident-popup .mapboxgl-popup-tip {
+  display: none;
+}
+.traffic-popup-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.traffic-popup-impact {
+  padding: 3px 7px;
+  color: black;
+  font-size: 23px;
+  font-weight: bold;
+  text-shadow: none;
+  white-space: nowrap;
+}
+.traffic-popup-progress {
+  font: 23px/1.2 'Frutiger Bold Cn';
+  white-space: nowrap;
+}
+.traffic-incident-popup h3 {
+  margin: 12px 0 0;
+  font: bold 30px/1.15 Frutiger;
+  overflow-wrap: anywhere;
+}
+.traffic-popup-description {
+  max-height: 170px;
+  overflow: auto;
+  margin: 10px 0 0;
+  overflow-wrap: anywhere;
 }
 .traffic-report {
   position: absolute;

@@ -2239,12 +2239,11 @@ function incidentType(type) {
 	return type == "construction" ? "Construction, " : "Incident, "
 }
 function parseStreetName(text) {
-	if (text.includes("-")) {
-		var splitText = text.replace("At ", "").replace("Between ", "").replaceAll("northbound ", "NB").replaceAll("southbound ", "SB").replaceAll("westbound ", "WB").replaceAll("eastbound ", "EB").split(" - ")//.split(/ - |\//)
-		return splitText[0]
-	} else {
-		return false
-	}
+	const separator = text.indexOf(" - ");
+	if (separator <= 0) return false;
+	return text.slice(0, separator).replace(/^(At|Between)\s+/, "")
+		.replaceAll("northbound ", "NB ").replaceAll("southbound ", "SB ")
+		.replaceAll("westbound ", "WB ").replaceAll("eastbound ", "EB ").trim();
 }
 function incidentImpact(impact) {
 	switch (impact) {

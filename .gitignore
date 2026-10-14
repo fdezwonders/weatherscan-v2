@@ -123,3 +123,6 @@ typings/
 .DS_Store
 .vscode
 
+# Local demo recordings and browser artifacts
+output/
+.playwright-cli/

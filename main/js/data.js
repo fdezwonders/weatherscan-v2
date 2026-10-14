@@ -1139,34 +1139,12 @@ function getSpanishData() {
 async function getTrafficData() {
   async function getTrafficReport() {
     try {
-    var trafurl = "https://data.traffic.hereapi.com/v7/incidents?in=circle:" + systemSettings.traffic.lat + "," + systemSettings.traffic.lon + ";r=4000&locationReferencing=tmc&lang=en-US&type=construction,accident&apiKey=" + traf_key
-    
+    // Keep original descriptions: HERE's translated descriptions can omit road names.
+    var trafurl = "https://data.traffic.hereapi.com/v7/incidents?in=circle:" + systemSettings.traffic.lat + "," + systemSettings.traffic.lon + ";r=4000&locationReferencing=shape&type=construction,accident&apiKey=" + traf_key
     const data = await $.getJSON(trafurl)
-
-    
-      var spacer = {"LOW IMPACT":"                     ", "MEDIUM IMPACT":"                            ", "HIGH IMPACT":"                      "}
-      weatherData.trafficReport.incidents = []
-      weatherData.trafficReport.noReport = false
-      weatherData.trafficReport.locationName = systemSettings.traffic.locationName
-      var t = 0
-      if (data.results.length > 0) {
-        for (var i = 0; i < data.results.length; i++) {
-          if (t < 6) {
-            var trafficObj = {impact:"", desc:"", title:""}
-            trafficObj.title = incidentType(data.results[i].incidentDetails.type) + parseStreetName(data.results[i].incidentDetails.description.value)
-            trafficObj.impact = incidentImpact(data.results[i].incidentDetails.criticality)
-            trafficObj.desc = spacer[incidentImpact(data.results[i].incidentDetails.criticality)] + data.results[i].incidentDetails.description.value
-            if (parseStreetName(data.results[i].incidentDetails.description.value) != false) {
-              weatherData.trafficReport.incidents.push(trafficObj)
-              t++
-            }
-          } else {break}
-        }
-      } else {
-        weatherData.trafficReport.incidents = []
-        weatherData.trafficReport.noReport = true
-        weatherData.trafficReport.locationName = systemSettings.traffic.locationName
-      }
+    weatherData.trafficReport.incidents = normalizeTrafficIncidents(data.results)
+    weatherData.trafficReport.noReport = weatherData.trafficReport.incidents.length === 0
+    weatherData.trafficReport.locationName = systemSettings.traffic.locationName
     } catch (error) {
       console.error(error)
       
