@@ -1175,39 +1175,43 @@ async function getTrafficData() {
       weatherData.trafficReport.locationName = systemSettings.traffic.locationName
     }
   }
-  getTrafficReport()
+  await getTrafficReport()
+
+  const routes = systemSettings.traffic.routes.filter(route => route.from.trim() && route.to.trim());
 
   async function getTrafficFlow(routenum) {
     var flowObj = {routeIcon:"",from:"",to:"",speed:"",baseSpeed:"",travelTime:"",color:"",mph:""}
     try {
-    var url = "https://router.hereapi.com/v8/routes?transportMode=car&origin=" + systemSettings.traffic.routes[routenum].from + "&destination=" + systemSettings.traffic.routes[routenum].to + "&return=summary,travelSummary,polyline&apiKey=" + traf_key
+    var url = "https://router.hereapi.com/v8/routes?transportMode=car&origin=" + routes[routenum].from + "&destination=" + routes[routenum].to + "&return=summary,travelSummary,polyline&apiKey=" + traf_key
     
     const data = await $.getJSON(url)
 
       weatherData.trafficFlow.locationName = systemSettings.traffic.locationName
       weatherData.trafficFlow.noReport = false
       
-      flowObj.from = systemSettings.traffic.routes[routenum].fromStreet
-      flowObj.to = systemSettings.traffic.routes[routenum].toStreet
+      flowObj.from = routes[routenum].fromStreet
+      flowObj.to = routes[routenum].toStreet
       flowObj.baseSpeed = Math.round(metStoMPH(data.routes[0].sections[0].summary.length/data.routes[0].sections[0].summary.baseDuration))
       flowObj.mph = Math.round(metStoMPH(data.routes[0].sections[0].summary.length/data.routes[0].sections[0].summary.duration))
       flowObj.speed = ((flowObj.mph >= flowObj.baseSpeed) ? "CLEAR" : metStoMPH(data.routes[0].sections[0].summary.length/data.routes[0].sections[0].summary.duration))
       flowObj.travelTime = Math.round(data.routes[0].sections[0].summary.duration/60)
       flowObj.color = ((flowObj.speed == "CLEAR") ? "GREEN" : (flowObj.speed <= 25) ? "RED" : (flowObj.mph >= 40) ? "GREEN" : "YELLOW")
-      flowObj.routeIcon = "images/roadSigns/" + systemSettings.traffic.routes[routenum].routeIcon + ".png"
+      flowObj.routeIcon = "images/roadSigns/" + routes[routenum].routeIcon + ".png"
     } catch (error) {
       console.error(error)
 
-      flowObj.from = systemSettings.traffic.routes[routenum].fromStreet
-      flowObj.to = systemSettings.traffic.routes[routenum].toStreet
+      flowObj.from = routes[routenum].fromStreet
+      flowObj.to = routes[routenum].toStreet
       flowObj.color = "NOREPORT"
-      flowObj.routeIcon = "images/roadSigns/" + systemSettings.traffic.routes[routenum].routeIcon + ".png"
+      flowObj.routeIcon = "images/roadSigns/" + routes[routenum].routeIcon + ".png"
     }
     weatherData.trafficFlow.routes[routenum] = flowObj
   }
 
+  weatherData.trafficFlow.locationName = systemSettings.traffic.locationName
+  weatherData.trafficFlow.noReport = true
   weatherData.trafficFlow.routes = []
-  for (var i = 0; i < systemSettings.traffic.routes.length; i++) {
+  for (var i = 0; i < routes.length; i++) {
     await getTrafficFlow(i)
   }
 }

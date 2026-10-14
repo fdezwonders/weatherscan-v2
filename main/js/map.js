@@ -175,6 +175,7 @@ function createTrafficMapIcons(zoom) {
   var toClass = document.getElementsByClassName("traffic-overview")[0]
   var id = zoom == 0 ? systemSettings.traffic.mapIcons.zoomOut : systemSettings.traffic.mapIcons.zoomIn
   for (var i = 0; i < id.length; i++) {
+    if (!id[i].icon) continue;
     var child = document.createElement("div")
     child.className = "icon " + numToWord(i)
     toClass.getElementsByClassName("traffic-icons")[0].appendChild(child)

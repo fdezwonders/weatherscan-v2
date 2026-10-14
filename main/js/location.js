@@ -457,6 +457,13 @@ async function getGardenLoc(lat, lon, name) {
     systemSettings.garden.locationID = data.location.locId
 }
 
+function setTrafficLocation() {
+    if (systemSettings.traffic?.autoFind !== true) return;
+    systemSettings.traffic.locationName = systemSettings.mainCity.locationName;
+    systemSettings.traffic.lat = systemSettings.mainCity.lat;
+    systemSettings.traffic.lon = systemSettings.mainCity.lon;
+}
+
 var mainquery = ""
 
 async function locationJS() {
@@ -475,6 +482,9 @@ async function locationJS() {
     }else{
         systemSettings.mainCity.header = `icaoCode=${systemSettings.mainCity.icaoCode}`;
     }
+
+    //Traffic follows the resolved main city, including IP and ZIP lookups.
+    setTrafficLocation();
 
     //startup location name
     if (systemSettings.systemLocation == "") {
