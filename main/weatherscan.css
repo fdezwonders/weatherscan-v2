@@ -317,11 +317,11 @@ img#mist-logo {
 }
 .provider {
     position: absolute;
-    bottom: 0;
-    right: 0;
-    height: 80px;
+    bottom: 79px;
+    right: 1116px;
+    height: 69px;
     z-index: 10;
-    scale: 1;
+    scale: 1.4;
     display: none;
     transform-origin: bottom right;
 }
