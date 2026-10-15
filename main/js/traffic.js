@@ -29,6 +29,53 @@ function trafficPopupText(incident) {
   return {title: incident.title, description: trafficPopupDescription(incident)};
 }
 
+function trafficRoadsOverlap(a, b) {
+  if (!a.geometry || !b.geometry) return false;
+  const lonScale = 111320 * Math.cos(a.coordinates[1] * Math.PI / 180);
+  const segments = incident => incident.geometry.coordinates.flatMap(line => line.slice(1).map((point, i) => {
+    const start = [line[i][0] * lonScale, line[i][1] * 111320];
+    const end = [point[0] * lonScale, point[1] * 111320];
+    return {start, end, length: Math.hypot(end[0] - start[0], end[1] - start[1])};
+  })).filter(segment => segment.length > 0);
+  let shorter = segments(a), longer = segments(b);
+  const length = road => road.reduce((sum, segment) => sum + segment.length, 0);
+  if (length(shorter) > length(longer)) [shorter, longer] = [longer, shorter];
+  const total = length(shorter);
+  if (!total || !longer.length) return false;
+  let covered = 0;
+  for (const segment of shorter) {
+    const samples = Math.ceil(segment.length / 100);
+    for (let i = 0; i < samples; i++) {
+      const fraction = (i + 0.5) / samples;
+      const point = segment.start.map((value, axis) => value + (segment.end[axis] - value) * fraction);
+      const nearby = longer.some(other => {
+        const dx = other.end[0] - other.start[0], dy = other.end[1] - other.start[1];
+        const projection = Math.max(0, Math.min(1,
+          ((point[0] - other.start[0]) * dx + (point[1] - other.start[1]) * dy) / other.length ** 2));
+        return Math.hypot(point[0] - other.start[0] - dx * projection,
+          point[1] - other.start[1] - dy * projection) <= 50;
+      });
+      if (nearby) covered += segment.length / samples;
+    }
+  }
+  return covered / total >= 0.85;
+}
+
+function sameTrafficIncident(a, b) {
+  if (a.sourceIds.some(id => b.sourceIds.includes(id))) return true;
+  if (a.event.originalIds.some(id => b.event.originalIds.includes(id))) return true;
+  // Shared pavement alone does not make separate crashes or work projects one event.
+  return a.event.type === 'construction' && b.event.type === 'construction'
+    && a.event.summary && a.event.summary === b.event.summary
+    && a.event.codes && a.event.codes === b.event.codes
+    && a.event.roadClosed === b.event.roadClosed
+    && Number.isFinite(a.event.start) && Number.isFinite(b.event.start)
+    && Math.abs(a.event.start - b.event.start) <= 60000
+    && Number.isFinite(a.event.end) && Number.isFinite(b.event.end)
+    && Math.abs(a.event.end - b.event.end) <= 60000
+    && trafficRoadsOverlap(a, b);
+}
+
 function normalizeTrafficIncidents(results) {
   const incidents = (Array.isArray(results) ? results : []).filter(result => result && typeof result === 'object').map((result, index) => {
     const details = result.incidentDetails || {};
@@ -57,6 +104,11 @@ function normalizeTrafficIncidents(results) {
     }
     return {
       id: details.id || String(index), criticality,
+      sourceIds: details.id ? [details.id] : [],
+      event: {originalIds: details.originalId ? [details.originalId] : [], type: details.type,
+        summary: (details.summary?.value || '').trim().toLowerCase(),
+        codes: Array.isArray(details.codes) ? details.codes.slice().sort().join(',') : '',
+        roadClosed: details.roadClosed, start: Date.parse(details.startTime), end: Date.parse(details.endTime)},
       coordinates,
       geometry: lines.length ? {type: 'MultiLineString', coordinates: lines} : null,
       roadLength: Number.isFinite(result.location?.length) ? result.location.length : null,
@@ -64,7 +116,29 @@ function normalizeTrafficIncidents(results) {
       impact: incidentImpact(criticality), desc: description
     };
   });
-  return incidents.sort((a, b) => trafficPriority[b.criticality] - trafficPriority[a.criticality]).slice(0, 6);
+  const groups = [];
+  for (const incident of incidents.sort((a, b) => trafficPriority[b.criticality] - trafficPriority[a.criticality])) {
+    const group = groups.find(existing => sameTrafficIncident(existing, incident));
+    if (!group) {
+      groups.push(incident);
+      continue;
+    }
+    group.sourceIds.push(...incident.sourceIds);
+    group.event.originalIds.push(...incident.event.originalIds);
+    if (incident.geometry) {
+      const lines = [...(group.geometry?.coordinates || []), ...incident.geometry.coordinates];
+      group.geometry = {type: 'MultiLineString', coordinates: Array.from(new Map(lines.map(line => [JSON.stringify(line), line])).values())};
+    }
+    // Prefer a named road range over a generic or single-cross-street description.
+    const specificity = item => /^Between /.test(item.desc) ? 2 : parseStreetName(item.desc) ? 1 : 0;
+    if (specificity(incident) > specificity(group)) {
+      group.title = incident.title;
+      group.desc = incident.desc;
+      group.coordinates = incident.coordinates || group.coordinates;
+    }
+    group.coordinates ||= incident.coordinates;
+  }
+  return groups.slice(0, 6).map(({event, ...incident}) => incident);
 }
 
 function trafficIncidentCamera(map, incident) {
