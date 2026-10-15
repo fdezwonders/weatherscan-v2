@@ -37,6 +37,9 @@ var fidx = 0
 var currentFB
 var currentCC
 var currentCCInterval
+var forecastBarTimer
+var forecastBarRevealTimer
+var forecastBarGeneration = 0
 function getlBarData(lbarLoc) {
   lBarData.cities[lbarLoc] = emptyLBarData();
   async function ccLBAR() {
@@ -529,7 +532,22 @@ function shrinkForecastText(){
 }
 
 function forecastBarLoop(idx){
+  clearTimeout(forecastBarTimer)
+  clearTimeout(forecastBarRevealTimer)
+  const generation = ++forecastBarGeneration
+  const packageContext = [orderidx, gidx]
+  const isCurrent = () => generation === forecastBarGeneration
+    && orderidx === packageContext[0] && gidx === packageContext[1]
+  fidx = 0
   fcstBarSlideSettings = []
+  function nextForecast(beforeNext) {
+    forecastBarTimer = setTimeout(() => {
+      if (!isCurrent()) return
+      beforeNext?.()
+      fidx = (fidx + 1) % fcstBarSlideSettings.length
+      showFB()
+    }, fcstlbarInterval)
+  }
   var forecastFunctions = {
     dayPart(){
 		  $(".headerline").css({
@@ -565,7 +583,8 @@ function forecastBarLoop(idx){
           $("#lbar .daypart-lbar .section" + divs[ii] + " .temp").css("bottom",208.25 + barHeights[ii]+"px")
 					ii = ii + 1
         })
-        setTimeout(() => {
+        forecastBarRevealTimer = setTimeout(() => {
+          if (!isCurrent()) return
           $("#lbar .daypart-lbar .temp").fadeIn(167)
         }, 1333);
       } else {
@@ -573,10 +592,9 @@ function forecastBarLoop(idx){
 
         $("#lbar .lbar-tempunavailable").fadeIn(0);
       }
-      setTimeout(() => {
-        fidx++; showFB()
+      nextForecast(() => {
         $("#lbar .daypart-lbar .temp").fadeOut(0)
-      }, fcstlbarInterval);
+      });
     },
     descOne(){
 		$(".headerline").css({
@@ -602,9 +620,7 @@ function forecastBarLoop(idx){
       if($("#lbar .text-lbar .forecast").outerHeight() == 0){
         setTimeout(shrinkForecastText, 10);
       }
-      setTimeout(() => {
-        fidx++; showFB()
-      }, fcstlbarInterval);
+      nextForecast();
     },
     descTwo(){
 		$(".headerline").css({
@@ -632,10 +648,9 @@ function forecastBarLoop(idx){
         fcastFontSize-=.25;
         $("#lbar .text-lbar .forecast").css('font-size', `${fcastFontSize}px`);
       }
-      setTimeout(() => {
-        fidx++; showFB()
+      nextForecast(() => {
         $("#lbar .text-lbar .forecast").css('font-size', `45px`);
-      }, fcstlbarInterval);
+      });
     },
     fiveDay(){
 		$(".headerline").css({
@@ -660,9 +675,7 @@ function forecastBarLoop(idx){
         $("#lbar .extended-lbar .day").fadeOut(0);
         $("#lbar .lbar-tempunavailable").fadeIn(0);
       }
-      setTimeout(() => {
-        fidx++; showFB()
-      }, fcstlbarInterval);
+      nextForecast();
     }
   }
   var forecastFunctionArray = [];
@@ -694,7 +707,7 @@ function forecastBarLoop(idx){
       forecastFunctionArray = [0,1,2,3];
   }
   var j = 0
-  var cap = Math.floor((slideSettings.order[orderidx].slideLineup[gidx].duration/1000)/15)
+  var cap = Math.max(1, Math.ceil(slideSettings.order[orderidx].slideLineup[gidx].duration/fcstlbarInterval))
   if(slideSettings.order[orderidx].slideLineup[gidx].group == "extralocal"){
     cap = cap * systemSettings.extraCity.cities.length;
   }
@@ -705,20 +718,12 @@ function forecastBarLoop(idx){
   }
   //console.log(fcstBarSlideSettings);
     function showFB() {
-      if (fidx < fcstBarSlideSettings.length) {
+      if (isCurrent()) {
         $('#lbar .daypart-lbar').fadeOut(0);
         $('#lbar .extended-lbar').fadeOut(0);
         $('#lbar .text-lbar').fadeOut(0);
-        if(idx != undefined){
-          //could def be a better way but for now this should fix the freeze on some slides
-          currentFB = forecastFunctions[fcstBarSlideSettings[0]]
-          idx = undefined;
-        }else{
-          currentFB = forecastFunctions[fcstBarSlideSettings[fidx]]
-        }
+        currentFB = forecastFunctions[fcstBarSlideSettings[fidx]]
         currentFB()
-      } else {
-        fidx = 0
       }
     }
     showFB()

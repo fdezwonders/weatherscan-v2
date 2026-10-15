@@ -1140,7 +1140,7 @@ async function getTrafficData() {
   async function getTrafficReport() {
     try {
     // Keep original descriptions: HERE's translated descriptions can omit road names.
-    var trafurl = "https://data.traffic.hereapi.com/v7/incidents?in=circle:" + systemSettings.traffic.lat + "," + systemSettings.traffic.lon + ";r=4000&locationReferencing=shape&type=construction,accident&apiKey=" + traf_key
+    var trafurl = "https://data.traffic.hereapi.com/v7/incidents?in=circle:" + systemSettings.traffic.lat + "," + systemSettings.traffic.lon + ";r=25000&locationReferencing=shape&type=construction,accident&apiKey=" + traf_key
     const data = await $.getJSON(trafurl)
     weatherData.trafficReport.incidents = normalizeTrafficIncidents(data.results)
     weatherData.trafficReport.noReport = weatherData.trafficReport.incidents.length === 0
